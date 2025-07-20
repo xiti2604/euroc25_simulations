@@ -6,9 +6,9 @@ from scipy.integrate import ode, simpson
 from scipy.interpolate import interp1d, RegularGridInterpolator
 from rocketpy import Fluid, CylindricalTank, MassFlowRateBasedTank, HybridMotor
 from rocketpy import Environment, Rocket, Flight
-import position_kf
-import ekf_barometer_apogee_predict
-import PID
+#import position_kf
+#import ekf_barometer_apogee_predict
+#import PID
 from rocketpy.utilities import apogee_by_mass
 
 
@@ -202,7 +202,7 @@ env.set_atmospheric_model("custom_atmosphere", wind_u=0, wind_v=-10) # Custom at
 freya = Rocket(
    
     radius=0.077, # Radius of the rocket
-    mass= 10, # Mass of the rocket (without motor)
+    mass= 11, # Mass of the rocket (without motor)
     inertia=(13, 13, 0.0506), # Inertia of the rocket
     power_off_drag="clean_drag_curve.csv", # Drag coefficient when the motor is off
     power_on_drag="clean_drag_curve.csv", # Drag coefficient when the motor is on
@@ -264,7 +264,7 @@ def airbrakes_controller(
             motor_burn_end_time = fafnir.burn_out_time
             is_after_burnout = time > motor_burn_end_time
 
-            if  altitude_AGL > 0:
+            if  altitude_AGL > 1500:
                 air_brakes_object_ref.deployment_level = 1  # Fully deploy
             else:
                 air_brakes_object_ref.deployment_level = 0  # Keep retracted
