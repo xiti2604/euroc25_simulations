@@ -12,7 +12,7 @@ from rocketpy import (
 
 
 ground_level = 95 # Ground level in meters
-tomorrow = datetime.date.today() + datetime.timedelta(days=10)
+tomorrow = datetime.date.today() + datetime.timedelta(days=1)
 
 
 # Create an nvironment object
