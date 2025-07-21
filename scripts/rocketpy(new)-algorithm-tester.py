@@ -10,6 +10,8 @@ from rocketpy import Environment, Rocket, Flight
 #import ekf_barometer_apogee_predict
 #import PID
 from rocketpy.utilities import apogee_by_mass
+import datetime
+
 
 
 try:
@@ -186,17 +188,23 @@ fafnir.add_tank(
 
 # Define ground level
 ground_level = 95 # Ground level in meters
+tomorrow = datetime.date.today() + datetime.timedelta(days=10)
+
 
 # Create an environment object
 env = Environment(
     latitude=38.72, # Latitude of the launch site
     longitude=-9.15, # Longitude of the launch site
     elevation=ground_level, # Elevation of the launch site
-    date=(2025, 10, 12, 12), # Date and time of the launch
+    #date=(2025, 10, 12, 12), # Date and time of the launch
+    date=(tomorrow.year, tomorrow.month, tomorrow.day, 12), # Date and time of the launch
 )
 
 # Set the atmospheric model
-env.set_atmospheric_model("custom_atmosphere", wind_u=0, wind_v=-10) # Custom atmosphere with wind
+#env.set_atmospheric_model("custom_atmosphere", wind_u=0, wind_v=-10) # Custom atmosphere with wind
+env.set_atmospheric_model(type="Forecast", file="GFS") # Custom atmosphere with wind
+
+
 
 # Create a rocket object named "freya"
 freya = Rocket(
