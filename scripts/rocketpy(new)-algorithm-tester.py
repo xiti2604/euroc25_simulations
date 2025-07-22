@@ -11,6 +11,8 @@ from rocketpy import Environment, Rocket, Flight
 #import PID
 from rocketpy.utilities import apogee_by_mass
 import datetime
+import apogeepredict1d as apogee_predictor_module
+
 
 
 
@@ -325,7 +327,7 @@ test_flight = Flight(
     rocket=freya, # Rocket object to be used in the simulation
     environment=env, # Environment object to be used in the simulation
     rail_length=12, # Length of the launch rail
-    inclination=85, # Launch inclination angle in degrees
+    inclination=75, # Launch inclination angle in degrees
     heading=0, # Launch heading angle in degrees
     time_overshoot=False,
 
@@ -344,8 +346,7 @@ print(f"velocity at the end of the rail: {test_flight.out_of_rail_velocity:.2f}"
 Drag = test_flight.aerodynamic_drag(burn_time)[1]
 print(f"Drag at the end of the rail: {Drag:.2f}")
 
-for i in test_flight.time:
-    print(f"time:{i:.2f} - Drag:{test_flight.aerodynamic_drag(i):.2f}")
+
 
 
 position_z= test_flight.solution_array[:, 3]
@@ -390,36 +391,6 @@ for t, macho, cd in zip(time, test_flight.mach_number(time), cd_scaled(test_flig
 
 
 
-def plot_drag_curves(clean_file="clean_drag_curve.csv", ab26_file="ab26mm_drag_curve.csv"):
-    
-    try:
-        # Read the data from the CSV files, assigning column names
-        df_clean = pd.read_csv(clean_file, header=None, names=['Mach', 'Cd'])
-        df_ab26 = pd.read_csv(ab26_file, header=None, names=['Mach', 'Cd'])
-
-        # Create the plot
-        plt.figure(figsize=(12, 8))
-        plt.plot(df_clean['Mach'], df_clean['Cd'], 'b-o', label='Clean Configuration', markersize=4)
-        plt.plot(df_ab26['Mach'], df_ab26['Cd'], 'g-s', label='Airbrakes at 26mm', markersize=4)
-        
-        # Highlight the region from Mach 0 to Mach 0.8
-        plt.axvspan(0, 0.8, alpha=0.2, color='yellow', label='Mach 0-0.8 Region')
-
-        # Add plot details
-        plt.title('Drag Coefficient (Cd) vs. Mach Number Comparison')
-        plt.xlabel('Mach Number')
-        plt.ylabel('Drag Coefficient (Cd)')
-        plt.grid(True)
-        plt.legend()
-        print("\nDisplaying drag curve comparison plot...")
-        plt.show()
-
-    except FileNotFoundError as e:
-        print(f"\nError: Could not find required file: {e.filename}")
-        print("Please generate the drag curve CSV files first before plotting.")
-    except Exception as e:
-        print(f"An unexpected error occurred while plotting: {e}")
-
 
 
 
@@ -438,7 +409,7 @@ print(airbrake_drag_from_model(1, 0.60))
 
 
 # Call the function to display the plot at the end of the script execution
-plot_drag_curves()
+
 
 
 test_flight.prints.apogee_conditions()
@@ -477,6 +448,94 @@ test_flight.prints.out_of_rail_conditions()
 test_flight.prints.maximum_values()
 test_flight.prints.burn_out_conditions()
 
-apogee_by_mass(
-    flight=test_flight, min_mass=5, max_mass=20, points=10, plot=True
+
+print("\n--- Apogee Prediction Log ---")
+actual_apogee = test_flight.apogee
+
+# Find the index for the end of the burn phase (max vertical velocity)
+
+burn_end_index = np.argmax(test_flight.solution_array[:, 6])
+coast_phase_time = test_flight.solution_array[burn_end_index + 1:, 0]
+
+print(f"{'Time (s)':>10s} | {'Predicted Apogee (m)':>22s} | {'Actual Apogee (m)':>20s} | {'Error (%)':>12s}")
+print("-" * 75)
+
+# Lists to store data for plotting
+prediction_times = []
+predicted_apogees = []
+actual_apogees = []
+errors = []
+
+for t in coast_phase_time:
+    state = test_flight.get_solution_at_time(t)
+
+    altitude_asl = state[3]
+    vy = state[5]
+    vz = state[6]
+
+    # Initial state for ballistic trajectory integration: [y, z, vy, vz]
+    initial_state = [state[2], altitude_asl, vy, vz]
+
+    constants = [
+        9.81,
+        env.density(altitude_asl),
+        freya.total_mass(t),
+        math.pi * freya.radius**2
+    ]
+
+    # Predict apogee using the ballistic model
+    current_deploy = air_brakes_system.deployment_level       
+    predicted_apogee = apogee_predictor_module.integrate_ballistic(
+        t, initial_state, constants,
+        duration=30, dt=0.1,
+        deployment_level=current_deploy
     )
+
+    # Calculate the prediction error
+    error = ((predicted_apogee - actual_apogee) / actual_apogee) * 100 if actual_apogee != 0 else 0
+
+    # Print the comparison
+    print(f"{t:>10.2f} | {predicted_apogee:>22.2f} | {actual_apogee:>20.2f} | {error:>11.2f}%")
+    
+    prediction_times.append(t)
+    predicted_apogees.append(predicted_apogee)
+    actual_apogees.append(actual_apogee)
+    errors.append(error)
+
+# Plot actual vs predicted apogee
+
+plt.plot(prediction_times, predicted_apogees, 'b-', label='Predicted Apogee', linewidth=2)
+plt.plot(prediction_times, actual_apogees, 'r--', label='Actual Apogee', linewidth=2)
+plt.xlabel('Time (s)')
+plt.ylabel('Apogee Altitude (m)')
+plt.title('Actual vs Predicted Apogee Over Time')
+plt.legend()
+plt.grid(True, alpha=0.3)
+plt.show()
+
+plt.plot(prediction_times, errors, 'g-', label='Error (%)', linewidth=2)
+plt.xlabel('Time (s)')
+plt.ylabel('Error (%)')
+plt.title('Error Between Predicted and Actual Apogee Over Time')
+plt.legend()
+plt.grid(True, alpha=0.3)
+plt.show()
+#env.all_info()
+burnouttime = fafnir.burn_time[1]
+
+print(f"burnouttime: {burnouttime}")
+
+times = test_flight.solution_array[burnouttime+1:, 0]
+for t in times:
+    print(f"time:{t:.2f} - altitude:{test_flight.altitude(t):.2f}")
+
+
+
+
+burn_end_index = np.argmax(test_flight.solution_array[:, 6])
+coast_phase_time = test_flight.solution_array[burn_end_index + 1:, 0]
+
+for t in coast_phase_time:
+    print(f"time:{t:.2f} - altitude:{test_flight.altitude(t):.2f}")
+
+
