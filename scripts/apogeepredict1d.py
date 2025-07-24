@@ -105,7 +105,8 @@ def ode_ballistic(t, state, constants, deployment_level):
 
     # Get total Cd from the dragcoeff module
     deployment_mm = np.clip(deployment_level, 0.0, 1.0) * 26.0
-    Cd_val = dc.get_total_cd(mach, deployment_mm)
+    #Cd_val = dc.get_total_cd(mach, deployment_mm)
+    Cd_val = dc.get_total_cd_for_override(mach, deployment_mm)
     
     drag_accel_z = (0.5 * rho0 * (vz * abs(vz)) * Cd_val * A_total) / m_dry
 
@@ -126,9 +127,7 @@ def integrate_ballistic(initial_time, initial_state, constants,
     apogee_value = None
     # Run until the absolute time reaches initial_time + duration.
     while solver.successful() and solver.t < (initial_time + duration):
-        # Check if vertical velocity becomes negative (i.e. we've passed apogee)
         if solver.t > initial_time and solver.y[3] < 0:
-            # The second element of the state is the altitude
             apogee_value = solver.y[1]
             break
         solver.integrate(solver.t + dt)
