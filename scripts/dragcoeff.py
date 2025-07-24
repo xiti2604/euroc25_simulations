@@ -84,7 +84,7 @@ interp_tot = RegularGridInterpolator(
 
 def get_total_cd(mach_number: float, deployment_mm: float) -> float:
     """
-    Calculates the TOTAL drag coefficient of the rocket, consistently applying
+    Calculates the TOTAL drag coefficient of the rocket, applying
     the global DRAG_MULTIPLIER to the airbrakes' contribution.
     This is used by the apogee predictor.
     """
@@ -108,6 +108,25 @@ def get_total_cd(mach_number: float, deployment_mm: float) -> float:
     cd_total_new = N * cd_total_orig + (1 - N) * cd_clean * area_ratio
     
     return cd_total_new
+
+def get_total_cd_for_override(mach_number: float, deployment_mm: float) -> float:
+    """
+    Calculates the TOTAL drag coefficient of the rocket, NORMALIZED to the
+    clean rocket's reference area. This is for use with a constant ref area.
+    """
+    A_clean = clean_area
+    A_total = float(area_interpolator(deployment_mm))
+
+    # Get the original (non-normalized) total Cd
+    cd_original = get_total_cd(mach_number, deployment_mm)
+
+    if A_clean < 1e-9:
+        return cd_original # Avoid division by zero
+
+    # Normalize the Cd to the clean reference area
+    cd_normalized = cd_original * (A_total / A_clean)
+    
+    return cd_normalized
 
 def get_clean_cd(mach_number):
     clean_interp = interp1d(mach_numbers, df['Clean'].values, 
