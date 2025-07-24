@@ -6,13 +6,10 @@ from scipy.integrate import ode, simpson
 from scipy.interpolate import interp1d, RegularGridInterpolator
 from rocketpy import Fluid, CylindricalTank, MassFlowRateBasedTank, HybridMotor
 from rocketpy import Environment, Rocket, Flight
-#import position_kf
-#import ekf_barometer_apogee_predict
-#import PID
+import apogeepredict1d as apogee_predictor_module
+import PID
 from rocketpy.utilities import apogee_by_mass
 import datetime
-import apogeepredict1d as apogee_predictor_module
-
 
 
 
@@ -40,11 +37,7 @@ def Cd_function_mach():
     return interp1d(velocity_vals, CD_vals, kind='linear', fill_value="extrapolate")
 
 def airbrake_drag_from_model(deployment, mach):
-    """
-    A clean wrapper function that gets the incremental airbrake drag
-    from the centralized model in dragcoeff.py. The deployment level
-    here is a fraction from 0 to 1.
-    """
+  
     deployment_mm = deployment * 26.0
     return dc.get_airbrake_cd(mach, deployment_mm)
 
@@ -55,7 +48,6 @@ def get_body_drag_from_cfd():
         # Return a function that always returns 0.5
         return lambda mach: 0.5
 
-    # Access the Mach numbers and Clean Cd values from the imported module
     mach_points = dc.mach_numbers
     cd_points = dc.df['Clean'].values
 
@@ -190,25 +182,20 @@ fafnir.add_tank(
 
 # Define ground level
 ground_level = 95 # Ground level in meters
-tomorrow = datetime.date.today() + datetime.timedelta(days=10)
-
 
 # Create an environment object
 env = Environment(
     latitude=38.72, # Latitude of the launch site
     longitude=-9.15, # Longitude of the launch site
     elevation=ground_level, # Elevation of the launch site
-    #date=(2025, 10, 12, 12), # Date and time of the launch
-    date=(tomorrow.year, tomorrow.month, tomorrow.day, 12), # Date and time of the launch
+    date=(2025, 8, 2, 12), # Date and time of the launch
+    timezone="UTC"
 )
 
 # Set the atmospheric model
 #env.set_atmospheric_model("custom_atmosphere", wind_u=0, wind_v=-10) # Custom atmosphere with wind
-env.set_atmospheric_model(type="Forecast", file="GFS") # Custom atmosphere with wind
+env.set_atmospheric_model(type="Forecast", file="GFS") 
 
-
-
-# Create a rocket object named "freya"
 freya = Rocket(
    
     radius=0.077, # Radius of the rocket
@@ -261,11 +248,33 @@ freya.add_parachute('Main', # Name of the parachute
 )
 
 
-BRAKES_DISABLED = False
+BRAKES_DISABLED = True
+USE_PID_CONTROLLER = True # 
+pid_apogee_controller = PID.PIDController(
+    Kp= 2, 
+    Ki=0, 
+    Kd=0, 
+    setpoint=3000,  
+    output_limits=(0, 1)
+)
+
+
+RATE_LIMIT_PER_SECOND = 1.0  # 1 second to full deployment
 
 def airbrakes_controller(
     time, sampling_rate, state, state_history, observed_variables, air_brakes_object_ref
 ):
+   
+   
+    if USE_PID_CONTROLLER:
+        # When PID is enabled, delegate control logic to the run_pid_controller function
+        return PID.run_pid_controller(
+            time, sampling_rate, state, air_brakes_object_ref,
+            env, fafnir, freya, apogee_predictor_module,
+            pid_apogee_controller, TARGET_APOGEE,
+            RATE_LIMIT_PER_SECOND, BRAKES_DISABLED
+        )
+    else:
         if BRAKES_DISABLED:
             air_brakes_object_ref.deployment_level = 0.0
         else:
@@ -279,7 +288,6 @@ def airbrakes_controller(
             else:
                 air_brakes_object_ref.deployment_level = 0  # Keep retracted
 
-        # This part is needed for both controllers to log data correctly
         altitude_ASL = state[2]
         vx, vy, vz = state[3], state[4], state[5]
         wind_x, wind_y = env.wind_velocity_x(altitude_ASL), env.wind_velocity_y(altitude_ASL)
@@ -288,21 +296,11 @@ def airbrakes_controller(
         current_cd = air_brakes_object_ref.drag_coefficient(
             air_brakes_object_ref.deployment_level, mach_number
         )
-
-        # Print the current time and calculated incremental drag coefficient
-        #print(f"Time: {time:.2f}s | Incremental Airbrake Cd: {current_cd:.4f} |deployment: {air_brakes_object_ref.deployment_level:.2f} ")
-        #print(f"Mach number: {mach_number:.2f}")
-        
-
-        return (
-            time,
-            air_brakes_object_ref.deployment_level,
-            current_cd,
-        )
+        return (time, air_brakes_object_ref.deployment_level, current_cd)
 
 
 FRONTAL_AREA = 0.01119008 * 2
-
+TARGET_APOGEE = 3000
 
 air_brakes_system = freya.add_air_brakes(
         drag_coefficient_curve= "total_drag_override.csv",
@@ -319,22 +317,35 @@ air_brakes_system = freya.add_air_brakes(
 
 
 
-# Draw a diagram of the rocket
-#freya.draw()
+def run_simulation(kp, ki, kd):
+   
+    global pid_apogee_controller
+    
+    # Update the global PID controller with the new gains for this simulation run
+    pid_apogee_controller = PID.PIDController(Kp=kp, Ki=ki, Kd=kd, setpoint=TARGET_APOGEE)
+    
+    # Reset PID state and clear history from previous runs
+    pid_apogee_controller.reset()
+    PID.ctrl_time_hist.clear()
+    PID.ctrl_pred_hist.clear()
+    PID.ctrl_error_hist.clear()
+    PID.ctrl_deploy_hist.clear()
 
-# Create a flight object named "test_flight"
+    
+    
+    # Return the achieved apogee altitude
+
+
+
 test_flight = Flight(
-    rocket=freya, # Rocket object to be used in the simulation
-    environment=env, # Environment object to be used in the simulation
-    rail_length=12, # Length of the launch rail
-    inclination=75, # Launch inclination angle in degrees
-    heading=0, # Launch heading angle in degrees
+    rocket=freya,
+    environment=env,
+    rail_length=12,
+    inclination=70,
+    heading=0,
     time_overshoot=False,
-
     terminate_on_apogee=True
 )
-
-# Print all information about the motor, rocket, and flight
 """fafnir.all_info()
 freya.all_info()
 test_flight.all_info()"""
@@ -350,11 +361,12 @@ print(f"Drag at the end of the rail: {Drag:.2f}")
 
 
 position_z= test_flight.solution_array[:, 3]
+position_y = test_flight.solution_array[:, 2]
 velocity_z = test_flight.solution_array[:, 6]
 time = test_flight.solution_array[:, 0]
 
-plt.plot(time, position_z)
-plt.plot(time, velocity_z)
+plt.plot(position_y, position_z)
+
 plt.show()
 
 
@@ -362,9 +374,9 @@ plt.show()
 angle_of_attack_at_burnout = test_flight.angle_of_attack(burn_time[1])
 print(f"Angle of Attack at burnout: {angle_of_attack_at_burnout:.3f} degrees")
 
-test_flight.prints.out_of_rail_conditions()
-test_flight.prints.burn_out_conditions()
-test_flight.prints.maximum_values()
+#test_flight.prints.out_of_rail_conditions()
+#test_flight.prints.burn_out_conditions()
+#test_flight.prints.maximum_values()
 
 """for t, z in zip(time, position_z):
     print(f"time:{t:.2f} - position_z:{z:.2f}")"""
@@ -397,7 +409,6 @@ for t, macho, cd in zip(time, test_flight.mach_number(time), cd_scaled(test_flig
 
 
 
-# Example usage
 
 test_flight.prints.out_of_rail_conditions()
 
@@ -407,8 +418,6 @@ print(airbrake_drag_from_model(1, 0.60))
 
 
 
-
-# Call the function to display the plot at the end of the script execution
 
 
 
@@ -445,97 +454,9 @@ plt.show()
 
 test_flight.prints.out_of_rail_conditions()
 
-test_flight.prints.maximum_values()
-test_flight.prints.burn_out_conditions()
+#test_flight.prints.maximum_values()
+#test_flight.prints.burn_out_conditions()
 
 
-print("\n--- Apogee Prediction Log ---")
-actual_apogee = test_flight.apogee
-
-# Find the index for the end of the burn phase (max vertical velocity)
-
-burn_end_index = np.argmax(test_flight.solution_array[:, 6])
-coast_phase_time = test_flight.solution_array[burn_end_index + 1:, 0]
-
-print(f"{'Time (s)':>10s} | {'Predicted Apogee (m)':>22s} | {'Actual Apogee (m)':>20s} | {'Error (%)':>12s}")
-print("-" * 75)
-
-# Lists to store data for plotting
-prediction_times = []
-predicted_apogees = []
-actual_apogees = []
-errors = []
-
-for t in coast_phase_time:
-    state = test_flight.get_solution_at_time(t)
-
-    altitude_asl = state[3]
-    vy = state[5]
-    vz = state[6]
-
-    # Initial state for ballistic trajectory integration: [y, z, vy, vz]
-    initial_state = [state[2], altitude_asl, vy, vz]
-
-    constants = [
-        9.81,
-        env.density(altitude_asl),
-        freya.total_mass(t),
-        math.pi * freya.radius**2
-    ]
-
-    # Predict apogee using the ballistic model
-    current_deploy = air_brakes_system.deployment_level       
-    predicted_apogee = apogee_predictor_module.integrate_ballistic(
-        t, initial_state, constants,
-        duration=30, dt=0.1,
-        deployment_level=current_deploy
-    )
-
-    # Calculate the prediction error
-    error = ((predicted_apogee - actual_apogee) / actual_apogee) * 100 if actual_apogee != 0 else 0
-
-    # Print the comparison
-    print(f"{t:>10.2f} | {predicted_apogee:>22.2f} | {actual_apogee:>20.2f} | {error:>11.2f}%")
-    
-    prediction_times.append(t)
-    predicted_apogees.append(predicted_apogee)
-    actual_apogees.append(actual_apogee)
-    errors.append(error)
-
-# Plot actual vs predicted apogee
-
-plt.plot(prediction_times, predicted_apogees, 'b-', label='Predicted Apogee', linewidth=2)
-plt.plot(prediction_times, actual_apogees, 'r--', label='Actual Apogee', linewidth=2)
-plt.xlabel('Time (s)')
-plt.ylabel('Apogee Altitude (m)')
-plt.title('Actual vs Predicted Apogee Over Time')
-plt.legend()
-plt.grid(True, alpha=0.3)
-plt.show()
-
-plt.plot(prediction_times, errors, 'g-', label='Error (%)', linewidth=2)
-plt.xlabel('Time (s)')
-plt.ylabel('Error (%)')
-plt.title('Error Between Predicted and Actual Apogee Over Time')
-plt.legend()
-plt.grid(True, alpha=0.3)
-plt.show()
-#env.all_info()
-burnouttime = fafnir.burn_time[1]
-
-print(f"burnouttime: {burnouttime}")
-
-times = test_flight.solution_array[burnouttime+1:, 0]
-for t in times:
-    print(f"time:{t:.2f} - altitude:{test_flight.altitude(t):.2f}")
-
-
-
-
-burn_end_index = np.argmax(test_flight.solution_array[:, 6])
-coast_phase_time = test_flight.solution_array[burn_end_index + 1:, 0]
-
-for t in coast_phase_time:
-    print(f"time:{t:.2f} - altitude:{test_flight.altitude(t):.2f}")
 
 
