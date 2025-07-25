@@ -449,6 +449,42 @@ plt.grid()
 plt.show()
 
 
+from PID import ctrl_time_hist, ctrl_pred_hist, ctrl_error_hist, ctrl_deploy_hist
+
+# Plot 1: Predicted Apogee Over Time
+plt.figure(figsize=(10, 4))
+plt.plot(ctrl_time_hist, ctrl_pred_hist, label='Predicted Apogee', color='blue')
+plt.axhline(TARGET_APOGEE, color='red', linestyle='--', label='Target Apogee')
+plt.xlabel("Time (s)")
+plt.ylabel("Apogee Prediction (m)")
+plt.title("Predicted Apogee Over Time")
+plt.legend()
+plt.grid(True, alpha=0.3)
+plt.tight_layout()
+plt.show()
+
+# Plot 2: Apogee Error Over Time
+plt.figure(figsize=(10, 4))
+plt.plot(ctrl_time_hist, ctrl_error_hist, label='Prediction Error', color='green')
+plt.axhline(0, color='black', linestyle='--')
+plt.xlabel("Time (s)")
+plt.ylabel("Error (m)")
+plt.title("Apogee Prediction Error Over Time")
+plt.legend()
+plt.grid(True, alpha=0.3)
+plt.tight_layout()
+plt.show()
+
+# Plot 3: Deployment Level Over Time
+plt.figure(figsize=(10, 4))
+plt.plot(ctrl_time_hist, ctrl_deploy_hist, label='Airbrake Deployment', color='purple')
+plt.xlabel("Time (s)")
+plt.ylabel("Deployment Level (0–1)")
+plt.title("Airbrake Deployment Over Time")
+plt.legend()
+plt.grid(True, alpha=0.3)
+plt.tight_layout()
+plt.show()
 
 
 
