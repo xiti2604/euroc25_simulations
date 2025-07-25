@@ -251,9 +251,9 @@ freya.add_parachute('Main', # Name of the parachute
 BRAKES_DISABLED = True
 USE_PID_CONTROLLER = True # 
 pid_apogee_controller = PID.PIDController(
-    Kp= 2, 
-    Ki=0, 
-    Kd=0, 
+    Kp= 0.008, 
+    Ki= 0.00018, 
+    Kd= 0.00018, 
     setpoint=3000,  
     output_limits=(0, 1)
 )
